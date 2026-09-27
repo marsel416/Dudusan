@@ -361,24 +361,32 @@ async function sendGiftToChat(idx) {
 
   try {
     await db.runTransaction(async (tx) => {
+      // Все чтения сначала
       const myRef = db.collection('users').doc(currentUser.uid);
       const mySnap = await tx.get(myRef);
+      let toRef = null;
+      let toSnap = null;
+      if (toUid) {
+        toRef = db.collection('users').doc(toUid);
+        toSnap = await tx.get(toRef);
+      }
+
       const myData = mySnap.data() || {};
-      const inventory = myData.inventory || [];
+      const inventory = (myData.inventory || []).slice();
       if (!inventory[idx] || inventory[idx].giftId !== item.giftId) {
         throw new Error('Подарок уже отправлен');
       }
       inventory.splice(idx, 1);
+
+      // Потом все записи
       tx.update(myRef, {
         inventory: inventory,
         giftsCount: Math.max(0, (myData.giftsCount || 1) - 1)
       });
 
-      if (toUid) {
-        const toRef = db.collection('users').doc(toUid);
-        const toSnap = await tx.get(toRef);
+      if (toUid && toRef && toSnap) {
         const toData = toSnap.data() || {};
-        const received = toData.receivedGifts || [];
+        const received = (toData.receivedGifts || []).slice();
         received.push({
           giftId: item.giftId,
           name: giftName,
@@ -387,7 +395,7 @@ async function sendGiftToChat(idx) {
           from: currentUser.uid,
           at: Date.now()
         });
-        const toInv = toData.inventory || [];
+        const toInv = (toData.inventory || []).slice();
         toInv.push({
           giftId: item.giftId,
           name: giftName,
@@ -404,12 +412,14 @@ async function sendGiftToChat(idx) {
       }
     });
 
+    const giftPoster = item.poster || (cat && cat.poster) || null;
     await db.collection('chats').doc(currentChatId).collection('messages').add({
       type: 'gift',
       giftId: item.giftId,
       giftName: giftName,
       giftLevel: giftLevel,
       giftFile: giftFile,
+      giftPoster: giftPoster,
       senderId: currentUser.uid,
       createdAt: firebase.firestore.FieldValue.serverTimestamp()
     });
@@ -505,4 +515,5 @@ async function adminGivePlus() {
   await snap.docs[0].ref.update({ premium: true, premiumUntil: null });
   toast(`DuduPlus выдан → @${username}`);
   $('prUser').value = '';
-}
+      }
+              

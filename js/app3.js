@@ -37,6 +37,14 @@ function bindUI() {
   if ($('btnAttach')) {
     $('btnAttach').onclick = () => $('chatImageInput') && $('chatImageInput').click();
   }
+  if ($('btnSendGift')) {
+    $('btnSendGift').onclick = () => {
+      if (!currentChatId) return toast('Открой чат');
+      try { renderGiftsMine(); } catch (e) {}
+      openPanel('panel-gifts');
+      toast('Выбери подарок в «Моя коллекция»');
+    };
+  }
   if ($('chatImageInput')) {
     $('chatImageInput').onchange = (e) => {
       const file = e.target.files && e.target.files[0];

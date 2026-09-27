@@ -30,12 +30,19 @@ const GIFT_CATALOG = [
   { id: 'heart', name: 'Сердце', price: 100, preview: '❤️', file: null, limited: false, level: 1 }
 ];
 
+function giftFileUrl(file) {
+  if (!file) return '';
+  if (/^https?:\/\//i.test(file)) return file;
+  try { return new URL(file, location.href).href; } catch (e) { return file; }
+}
+
 function giftPreviewHTML(g) {
   if (g.file) {
+    const src = giftFileUrl(g.file);
     if (/\.(mp4|webm)$/i.test(g.file)) {
-      return '<video src="' + escapeHtml(g.file) + '" autoplay loop muted playsinline></video>';
+      return '<video src="' + escapeHtml(src) + '" autoplay loop muted playsinline></video>';
     }
-    return '<img src="' + escapeHtml(g.file) + '" alt="">';
+    return '<img src="' + escapeHtml(src) + '" alt="">';
   }
   return escapeHtml(g.preview || '🎁');
 }
@@ -98,9 +105,10 @@ function renderGiftsMine() {
   if (!box) return;
   const inv = (profile && profile.inventory) || [];
   if (!inv.length) {
-    box.innerHTML = '<p style="color:var(--text-tertiary);font-size:13px;padding:8px">Пока пусто</p>';
+    box.innerHTML = '<p style="color:var(--text-tertiary);font-size:13px;padding:8px">Пока пусто. Купи в магазине выше.</p>';
     return;
   }
+  const canSend = !!currentChatId;
   box.innerHTML = inv.map(function (item, idx) {
     const cat = GIFT_CATALOG.find(g => g.id === item.giftId);
     const level = item.level || 1;
@@ -110,16 +118,26 @@ function renderGiftsMine() {
       preview: (cat && cat.preview) || '🎁'
     });
     const canUp = level < maxLevel;
+    const action = canSend
+      ? '<div class="gift-price" style="color:var(--accent)">Отправить</div>'
+      : '<div class="gift-price">ур. ' + level + (canUp ? ' · улучшить' : ' · макс') + '</div>';
     return (
       '<div class="gift-card" data-idx="' + idx + '">' +
         '<div class="gift-preview">' + preview + '</div>' +
         '<div class="gift-name">' + escapeHtml(item.name || item.giftId) + '</div>' +
-        '<div class="gift-price">ур. ' + level + (canUp ? ' · улучшить' : ' · макс') + '</div>' +
+        action +
       '</div>'
     );
   }).join('');
   box.querySelectorAll('.gift-card').forEach(el => {
-    el.onclick = () => upgradeGift(parseInt(el.dataset.idx, 10));
+    el.onclick = () => {
+      const idx = parseInt(el.dataset.idx, 10);
+      if (currentChatId) {
+        sendGiftToChat(idx);
+      } else {
+        upgradeGift(idx);
+      }
+    };
   });
 }
 
@@ -518,4 +536,4 @@ async function saveProfile() {
     console.error(e);
     toast('Ошибка сохранения');
   }
-                                               }
+}

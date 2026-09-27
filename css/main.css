@@ -514,4 +514,50 @@ body {
 .gift-card .gift-price {
   font-size: 11px;
   color: var(--text-secondary);
-  }
+}
+
+
+/* Roulette */
+#rouletteOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.55);
+  z-index: 9999;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(8px);
+}
+#rouletteOverlay.open { display: flex; }
+.roulette-box {
+  background: var(--bg-elevated, #fff);
+  border-radius: 24px;
+  padding: 24px;
+  width: min(320px, 90vw);
+  text-align: center;
+  position: relative;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+}
+.roulette-title { font-weight: 700; font-size: 18px; margin-bottom: 16px; }
+.roulette-wheel {
+  width: 200px;
+  height: 200px;
+  margin: 0 auto;
+  border-radius: 50%;
+  border: 4px solid var(--border, #ddd);
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr 1fr;
+  background: conic-gradient(#34C759 0deg 60deg, #FF3B30 60deg 120deg, #34C759 120deg 180deg, #FF3B30 180deg 240deg, #34C759 240deg 300deg, #FF3B30 300deg 360deg);
+}
+.roulette-seg { display: none; }
+.roulette-pointer {
+  width: 0; height: 0;
+  border-left: 10px solid transparent;
+  border-right: 10px solid transparent;
+  border-top: 16px solid #1C1C1E;
+  margin: -8px auto 12px;
+}
+.roulette-chance { font-size: 13px; color: var(--text-secondary); margin-bottom: 8px; }
+.roulette-result { font-size: 16px; font-weight: 700; min-height: 24px; }

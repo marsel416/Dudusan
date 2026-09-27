@@ -22,6 +22,7 @@ const GIFT_CATALOG = [
     price: 350,
     preview: '👽',
     file: 'assets/gifts/alien-pup.mp4',
+    poster: 'assets/gifts/alien-pup.png',
     limited: false,
     maxLevel: 5,
     upgradeCost: 100
@@ -39,10 +40,16 @@ function giftFileUrl(file) {
 function giftPreviewHTML(g) {
   if (g.file) {
     const src = giftFileUrl(g.file);
+    const poster = g.poster ? giftFileUrl(g.poster) : '';
     if (/\.(mp4|webm)$/i.test(g.file)) {
-      return '<video src="' + escapeHtml(src) + '" autoplay loop muted playsinline></video>';
+      return '<video src="' + escapeHtml(src) + '"' +
+        (poster ? ' poster="' + escapeHtml(poster) + '"' : '') +
+        ' autoplay loop muted playsinline webkit-playsinline></video>';
     }
     return '<img src="' + escapeHtml(src) + '" alt="">';
+  }
+  if (g.poster) {
+    return '<img src="' + escapeHtml(giftFileUrl(g.poster)) + '" alt="">';
   }
   return escapeHtml(g.preview || '🎁');
 }
@@ -81,7 +88,8 @@ async function buyGift(giftId) {
         name: gift.name,
         level: 1,
         boughtAt: Date.now(),
-        file: gift.file || null
+        file: gift.file || null,
+        poster: gift.poster || null
       });
       tx.update(userRef, {
         balance: bal - gift.price,
@@ -115,6 +123,7 @@ function renderGiftsMine() {
     const maxLevel = (cat && cat.maxLevel) || 5;
     const preview = giftPreviewHTML({
       file: item.file || (cat && cat.file) || null,
+      poster: item.poster || (cat && cat.poster) || null,
       preview: (cat && cat.preview) || '🎁'
     });
     const canUp = level < maxLevel;
@@ -173,48 +182,86 @@ async function upgradeGift(idx) {
     return toast('Нужно ' + cost + ' дуди (шанс ' + pct + '%)');
   }
 
-  // Рулетка: списываем стоимость, потом roll
-  toast('Крутим... шанс ' + pct + '%');
-  try {
-    const userRef = db.collection('users').doc(currentUser.uid);
-    const success = Math.random() < chance;
+  // Показать рулетку
+  showRoulette(pct, async function (done) {
+    try {
+      const userRef = db.collection('users').doc(currentUser.uid);
+      const success = Math.random() < chance;
 
-    await db.runTransaction(async (tx) => {
-      const snap = await tx.get(userRef);
-      const data = snap.data() || {};
-      const bal = data.balance || 0;
-      if (bal < cost) throw new Error('Не хватает дуди');
-
-      const inventory = data.inventory || [];
-      if (!inventory[idx] || inventory[idx].giftId !== item.giftId) {
-        throw new Error('Подарок не найден');
-      }
-
-      if (success) {
-        inventory[idx] = Object.assign({}, inventory[idx], { level: level + 1 });
-      }
-      // при провале уровень не падает — только трата дуди
-
-      tx.update(userRef, {
-        balance: bal - cost,
-        inventory: inventory
+      await db.runTransaction(async (tx) => {
+        const snap = await tx.get(userRef);
+        const data = snap.data() || {};
+        const bal = data.balance || 0;
+        if (bal < cost) throw new Error('Не хватает дуди');
+        const inventory = data.inventory || [];
+        if (!inventory[idx] || inventory[idx].giftId !== item.giftId) {
+          throw new Error('Подарок не найден');
+        }
+        if (success) {
+          inventory[idx] = Object.assign({}, inventory[idx], { level: level + 1 });
+        }
+        tx.update(userRef, {
+          balance: bal - cost,
+          inventory: inventory
+        });
       });
-    });
 
-    const fresh = await userRef.get();
-    profile = { id: currentUser.uid, ...fresh.data() };
-    renderMyProfile();
-    renderGiftsMine();
-
-    if (success) {
-      toast('Успех! «' + item.name + '» → ур. ' + (level + 1));
-    } else {
-      toast('Не повезло. Уровень тот же, −' + cost + ' дуди');
+      const fresh = await userRef.get();
+      profile = { id: currentUser.uid, ...fresh.data() };
+      renderMyProfile();
+      renderGiftsMine();
+      done(success, success ? ('Успех! → ур. ' + (level + 1)) : ('Не повезло (−' + cost + ' дуди)'));
+    } catch (e) {
+      console.error(e);
+      done(false, e.message || 'Ошибка');
     }
-  } catch (e) {
-    console.error(e);
-    toast(e.message || 'Ошибка улучшения');
+  });
+}
+
+function showRoulette(pct, onFinish) {
+  let overlay = document.getElementById('rouletteOverlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'rouletteOverlay';
+    overlay.innerHTML =
+      '<div class="roulette-box">' +
+        '<div class="roulette-title">Улучшение</div>' +
+        '<div class="roulette-wheel" id="rouletteWheel">' +
+          '<div class="roulette-seg win">УСПЕХ</div>' +
+          '<div class="roulette-seg lose">ПРОИГРЫШ</div>' +
+          '<div class="roulette-seg win">УСПЕХ</div>' +
+          '<div class="roulette-seg lose">ПРОИГРЫШ</div>' +
+          '<div class="roulette-seg win">УСПЕХ</div>' +
+          '<div class="roulette-seg lose">ПРОИГРЫШ</div>' +
+        '</div>' +
+        '<div class="roulette-pointer"></div>' +
+        '<div class="roulette-chance" id="rouletteChance"></div>' +
+        '<div class="roulette-result" id="rouletteResult"></div>' +
+      '</div>';
+    document.body.appendChild(overlay);
   }
+  overlay.classList.add('open');
+  document.getElementById('rouletteChance').textContent = 'Шанс ' + pct + '%';
+  document.getElementById('rouletteResult').textContent = 'Крутим...';
+  const wheel = document.getElementById('rouletteWheel');
+  wheel.style.transition = 'none';
+  wheel.style.transform = 'rotate(0deg)';
+  void wheel.offsetWidth;
+  const spins = 4 + Math.floor(Math.random() * 3);
+  const extra = Math.floor(Math.random() * 360);
+  const deg = spins * 360 + extra;
+  wheel.style.transition = 'transform 2.8s cubic-bezier(0.15, 0.8, 0.2, 1)';
+  wheel.style.transform = 'rotate(' + deg + 'deg)';
+
+  setTimeout(function () {
+    onFinish(function (ok, msg) {
+      document.getElementById('rouletteResult').textContent = msg;
+      document.getElementById('rouletteResult').style.color = ok ? '#34C759' : '#FF3B30';
+      setTimeout(function () {
+        overlay.classList.remove('open');
+      }, 1400);
+    });
+  }, 2900);
 }
 
 // ---------- HELPERS ----------
@@ -536,4 +583,4 @@ async function saveProfile() {
     console.error(e);
     toast('Ошибка сохранения');
   }
-}
+                }

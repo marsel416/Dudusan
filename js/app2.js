@@ -248,7 +248,19 @@ async function openChat(chatId) {
           body += '<img class="msg-img" src="' + escapeHtml(m.imageURL) + '" alt="" loading="lazy">';
         }
         if (m.giftId) {
-          body += '<div class="msg-gift" data-gift="' + escapeHtml(m.giftId) + '">🎁 ' + escapeHtml(m.giftName || m.giftId) + '</div>';
+          const gFile = m.giftFile || '';
+          let media = '';
+          if (gFile && /\.(mp4|webm)$/i.test(gFile)) {
+            media = '<video class="msg-gift-video" src="' + escapeHtml(giftFileUrl(gFile)) + '" autoplay loop muted playsinline></video>';
+          } else if (gFile) {
+            media = '<img class="msg-gift-video" src="' + escapeHtml(giftFileUrl(gFile)) + '" alt="">';
+          } else {
+            media = '<div style="font-size:40px">🎁</div>';
+          }
+          body += '<div class="msg-gift" data-gift="' + escapeHtml(m.giftId) + '">' +
+            media +
+            '<div class="msg-gift-name">' + escapeHtml(m.giftName || m.giftId) +
+            (m.giftLevel ? ' · ур.' + m.giftLevel : '') + '</div></div>';
         }
         if (m.text) {
           body += '<div class="msg-text">' + escapeHtml(m.text) + '</div>';
@@ -327,6 +339,97 @@ async function sendImage(file) {
   }
 }
 
+async function sendGiftToChat(idx) {
+  if (!currentUser || !profile || !currentChatId) {
+    return toast('Открой чат, чтобы отправить подарок');
+  }
+  const inv = profile.inventory || [];
+  const item = inv[idx];
+  if (!item) return toast('Подарок не найден');
+
+  const cat = GIFT_CATALOG.find(g => g.id === item.giftId);
+  const giftFile = item.file || (cat && cat.file) || null;
+  const giftName = item.name || (cat && cat.name) || item.giftId;
+  const giftLevel = item.level || 1;
+
+  // Кому: второй участник личного чата
+  let toUid = null;
+  const chat = chatCache[currentChatId];
+  if (chat && chat.type === 'private' && chat.members) {
+    toUid = chat.members.find(id => id !== currentUser.uid) || null;
+  }
+
+  try {
+    await db.runTransaction(async (tx) => {
+      const myRef = db.collection('users').doc(currentUser.uid);
+      const mySnap = await tx.get(myRef);
+      const myData = mySnap.data() || {};
+      const inventory = myData.inventory || [];
+      if (!inventory[idx] || inventory[idx].giftId !== item.giftId) {
+        throw new Error('Подарок уже отправлен');
+      }
+      inventory.splice(idx, 1);
+      tx.update(myRef, {
+        inventory: inventory,
+        giftsCount: Math.max(0, (myData.giftsCount || 1) - 1)
+      });
+
+      if (toUid) {
+        const toRef = db.collection('users').doc(toUid);
+        const toSnap = await tx.get(toRef);
+        const toData = toSnap.data() || {};
+        const received = toData.receivedGifts || [];
+        received.push({
+          giftId: item.giftId,
+          name: giftName,
+          level: giftLevel,
+          file: giftFile,
+          from: currentUser.uid,
+          at: Date.now()
+        });
+        const toInv = toData.inventory || [];
+        toInv.push({
+          giftId: item.giftId,
+          name: giftName,
+          level: giftLevel,
+          file: giftFile,
+          boughtAt: Date.now(),
+          from: currentUser.uid
+        });
+        tx.update(toRef, {
+          receivedGifts: received,
+          inventory: toInv,
+          giftsCount: (toData.giftsCount || 0) + 1
+        });
+      }
+    });
+
+    await db.collection('chats').doc(currentChatId).collection('messages').add({
+      type: 'gift',
+      giftId: item.giftId,
+      giftName: giftName,
+      giftLevel: giftLevel,
+      giftFile: giftFile,
+      senderId: currentUser.uid,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    await db.collection('chats').doc(currentChatId).update({
+      lastMessage: '🎁 ' + giftName,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+
+    const fresh = await db.collection('users').doc(currentUser.uid).get();
+    profile = { id: currentUser.uid, ...fresh.data() };
+    renderMyProfile();
+    renderGiftsMine();
+    closeAllPanels();
+    toast('Подарок отправлен: ' + giftName);
+  } catch (e) {
+    console.error(e);
+    toast(e.message || 'Не удалось отправить подарок');
+  }
+}
+
 function closeChat() {
   currentChatId = null;
   currentChatOther = null;
@@ -335,7 +438,6 @@ function closeChat() {
   hide('chatView');
   show('emptyState');
   $('sidebar').classList.remove('hide');
-  // обновить активный класс
   document.querySelectorAll('.chat-item').forEach(el => el.classList.remove('active'));
 }
 
@@ -403,5 +505,4 @@ async function adminGivePlus() {
   await snap.docs[0].ref.update({ premium: true, premiumUntil: null });
   toast(`DuduPlus выдан → @${username}`);
   $('prUser').value = '';
-      }
-        
+}
